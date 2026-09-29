@@ -1,0 +1,12 @@
+{
+  "name": "claude-jev",
+  "owner": { "name": "claude-jev" },
+  "description": "Model routing for Claude Code, powered by Jev decision calls",
+  "plugins": [
+    {
+      "name": "claude-jev",
+      "source": "./",
+      "description": "Routes each turn to the cheapest model that can do it, using a Jev decision call"
+    }
+  ]
+}

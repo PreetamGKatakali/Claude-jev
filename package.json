@@ -1,0 +1,35 @@
+{
+  "name": "claude-jev",
+  "version": "0.3.0",
+  "description": "Routes each Claude Code turn to the cheapest model that can do it, using a Jev decision call",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20.12" },
+  "bin": {
+    "claude-jev": "scripts/ctl.mjs"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "daemon": "node src/daemon.mjs",
+    "validate": "claude plugin validate ."
+  },
+  "files": [
+    ".claude-plugin",
+    "commands",
+    "hooks",
+    "scripts",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "model-routing",
+    "jev",
+    "typesafe",
+    "openrouter"
+  ],
+  "publishConfig": { "access": "public" }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "claude-jev",
+  "version": "0.2.0",
+  "description": "Routes each turn to the cheapest model that can do it, using a Jev decision call",
+  "author": { "name": "claude-jev" },
+  "license": "MIT",
+  "userConfig": {
+    "jev_api_key": {
+      "type": "string",
+      "title": "Jev API key",
+      "description": "An OpenRouter key (sk-or-...) or a TypeSafe key (apikey_...). The format selects the provider. Stored in secure storage, never written to settings.json or to disk.",
+      "sensitive": true
+    }
+  }
+}

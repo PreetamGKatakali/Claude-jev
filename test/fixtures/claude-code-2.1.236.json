@@ -1,0 +1,64 @@
+{
+  "note": "Captured from Claude Code 2.1.236 through the daemon with a stub upstream. Long text is trimmed, but <system-reminder> wrappers are kept whole. The session-title call carries no tools; the real turn ends in a system-role message, which is what makes last-message-is-user detection wrong. The session id is replaced with a placeholder; nothing else is altered beyond trimming long text.",
+  "sessionTitleCall": {
+    "url": "/v1/messages?beta=true",
+    "headers": {
+      "x-claude-code-session-id": "00000000-0000-4000-8000-000000000000",
+      "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,advisor-tool-2026-03-01,effort-2025-11-24,structured-outputs-2025-12-15",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "anthropic-version": "2023-06-01"
+    },
+    "model": "claude-sonnet-5",
+    "toolCount": 0,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "<session>\nrename the variable foo to bar\n</session>\n\nWrite the title in the predominant language of the session \u2014 a stray word or code token in another language\u2026[trimmed]"
+          }
+        ]
+      }
+    ]
+  },
+  "realTurn": {
+    "url": "/v1/messages?beta=true",
+    "headers": {
+      "x-claude-code-session-id": "00000000-0000-4000-8000-000000000000",
+      "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,advisor-tool-2026-03-01,effort-2025-11-24,extended-cache-ttl-2025-04-11",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "anthropic-version": "2023-06-01"
+    },
+    "model": "claude-sonnet-5",
+    "toolCount": 37,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# claudeMd\nCodebase and user instructions are shown below. Be sure to adhere to these in\u2026[trimmed]\n</system-reminder>\n\n"
+          },
+          {
+            "type": "text",
+            "text": "rename the variable foo to bar"
+          }
+        ]
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Available agent types for the Agent tool:\n- claude: Catch-all for any task that doesn't fit a more specific agent. FleetView's default when no agent name is typ\u2026[trimmed]",
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "1h"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
