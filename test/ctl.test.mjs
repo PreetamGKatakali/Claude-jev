@@ -10,7 +10,7 @@ process.env.CLAUDE_CONFIG_DIR = dir;
 process.env.JEV_PORT = "8799"; // nothing listens here, so daemon steps just fail quietly
 process.env.CLAUDE_PLUGIN_OPTION_JEV_API_KEY = "apikey_test_test";
 
-const { setup, off, managedEnv, readSettings, writeSettings, STATUS_LINE_MARK } =
+const { setup, off, managedEnv, readSettings, writeSettings, STATUS_LINE_MARK, keyState, keyLine } =
   await import("../scripts/ctl.mjs");
 
 const settingsPath = join(dir, "settings.json");
@@ -126,4 +126,59 @@ test("a missing entry point is not the main module", async () => {
   } finally {
     process.argv[1] = argv;
   }
+});
+
+// --- where the key is allowed to come from ------------------------------------------------
+//
+// Claude Code hands plugin options to hook processes only, so a slash command runs with no
+// key in its environment however correctly the key is configured. Reporting MISSING there
+// sends people to re-enter a key that was never wrong.
+
+const withoutEnvKey = async (fn) => {
+  const saved = process.env.CLAUDE_PLUGIN_OPTION_JEV_API_KEY;
+  delete process.env.CLAUDE_PLUGIN_OPTION_JEV_API_KEY;
+  try {
+    return await fn();
+  } finally {
+    process.env.CLAUDE_PLUGIN_OPTION_JEV_API_KEY = saved;
+  }
+};
+
+test("a key in this process's environment is used directly", () => {
+  const k = keyState(null);
+  assert.equal(k.source, "env");
+  assert.equal(k.provider, "typesafe");
+  assert.ok(k.ok);
+});
+
+test("with no key here, the daemon's is authoritative", async () => {
+  const k = await withoutEnvKey(() => keyState({ hasKey: true, provider: "typesafe" }));
+  assert.equal(k.source, "daemon");
+  assert.equal(k.provider, "typesafe");
+  assert.ok(k.ok, "a key the daemon holds is a working key");
+});
+
+test("the daemon's key is never reported back, only which provider it is", async () => {
+  const line = await withoutEnvKey(() => keyLine(keyState({ hasKey: true, provider: "typesafe" })));
+  assert.match(line, /typesafe/);
+  assert.doesNotMatch(line, /apikey_|sk-or-/, "the key itself must not appear");
+});
+
+test("a key the daemon cannot place is not treated as working", async () => {
+  const k = await withoutEnvKey(() => keyState({ hasKey: true, provider: null }));
+  assert.equal(k.source, "daemon");
+  assert.equal(k.ok, false);
+});
+
+test("no key anywhere still reports missing", async () => {
+  const k = await withoutEnvKey(() => keyState({ hasKey: false, provider: null }));
+  assert.equal(k.source, null);
+  assert.equal(k.ok, false);
+  assert.match(keyLine(k), /not set/);
+});
+
+test("a daemon that is down does not hide a missing key", async () => {
+  const k = await withoutEnvKey(() => keyState(null));
+  assert.equal(k.source, null);
+  assert.equal(k.ok, false);
 });

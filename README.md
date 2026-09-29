@@ -130,7 +130,7 @@ the status line switches to `manual`. Choose Jev Auto again to hand control back
   OK    settings env block       all 9 keys set
   OK    this session is routed   http://127.0.0.1:8787
   OK    daemon                   up on http://127.0.0.1:8787, pid 23551
-  OK    key                      apikey_… (107 chars)
+  OK    key                      held by the daemon, provider typesafe
   OK    provider                 typesafe
   OK    provider reachable       answered in 431ms
   OK    turn detection           Claude Code 2.1.236 predates 2.1.283, using the prompt-text fallback
@@ -140,6 +140,13 @@ Every failing line names its own fix. The one worth knowing in advance: `ANTHROP
 points at the router for every session on the machine, so if the daemon is down, sessions fail
 until it is back. `/jev:setup` restarts it and `/jev:off` reverts to stock Claude Code
 immediately.
+
+`key held by the daemon` is the normal reading, not a fallback. Claude Code gives plugin
+options to hook processes only, so a slash command has no key in its own environment however
+correctly the key is configured; the daemon is started by the `SessionStart` hook and is the
+one process the key reaches. `/jev:doctor` therefore asks the daemon, and has it make the
+provider call too. Reporting `MISSING` from a command that structurally cannot see a key would
+send you to re-enter a key that was never wrong.
 
 | Command | What it does |
 | --- | --- |
@@ -188,7 +195,7 @@ and the model cannot flip mid-task.
 ## Try it without touching your config
 
 ```bash
-npm test          # 45 tests, no network
+npm test          # 97 tests, no network
 JEV_API_KEY=sk-or-… npm run daemon
 ```
 

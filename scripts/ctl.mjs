@@ -27,12 +27,43 @@ const configDir = () => process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claud
 const settingsFile = () => join(configDir(), "settings.json");
 const stateDir = () => join(configDir(), "claude-jev");
 
-/** The key only ever arrives through a hook process, which is where the plugin option lands. */
+/**
+ * The key only ever arrives through a hook process, which is where the plugin option lands.
+ * A slash command runs in a plain process that Claude Code does not give plugin options to,
+ * so this is empty there even when the key is configured perfectly.
+ */
 const apiKey = () =>
   process.env.CLAUDE_PLUGIN_OPTION_JEV_API_KEY ??
   process.env.JEV_API_KEY ??
   process.env.OPENROUTER_API_KEY ??
   "";
+
+/**
+ * Whether a usable key exists, which is not the same question as whether *this* process can
+ * see one. The daemon is started by the SessionStart hook and is the only process the key
+ * reaches, so when the local environment is empty the daemon is asked instead -- reporting
+ * MISSING from a command that structurally cannot see the key sends people to re-enter a key
+ * that was never wrong.
+ */
+function keyState(up) {
+  const key = apiKey();
+  if (key) {
+    const provider = resolveProvider(key);
+    return { ok: Boolean(provider), key, provider: provider?.name ?? null, source: "env" };
+  }
+  if (up?.hasKey) return { ok: Boolean(up.provider), key: "", provider: up.provider, source: "daemon" };
+  return { ok: false, key: "", provider: null, source: null };
+}
+
+/** One line describing the key, phrased for wherever it was found. */
+function keyLine(k) {
+  if (k.source === "env") return `${k.key.slice(0, 7)}\u2026 (${k.key.length} chars), provider ${k.provider ?? "UNRECOGNISED"}`;
+  if (k.source === "daemon")
+    return k.provider
+      ? `held by the daemon, provider ${k.provider}`
+      : "held by the daemon, but its format matches no known provider";
+  return "not set - run /plugin configure claude-jev, then restart Claude Code";
+}
 
 /**
  * The environment Claude Code needs before it starts. A plugin cannot set these itself --
@@ -75,6 +106,21 @@ export const writeSettings = (settings) => {
 
 // --- daemon --------------------------------------------------------------------------
 
+/** Asks the daemon to call the provider, for when this process has no key of its own. */
+async function probeViaDaemon(timeoutMs = 8000) {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BASE}/_jev/probe`, { signal: abort.signal });
+    if (!res.ok) return { error: `daemon answered ${res.status}` };
+    return await res.json();
+  } catch (err) {
+    return { error: err.name === "AbortError" ? "timed out" : err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function health(timeoutMs = 1000) {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -112,15 +158,24 @@ async function start() {
   return null;
 }
 
+/**
+ * Stops whatever is actually listening, which is not always what the pid file says: a daemon
+ * can be started by hand or by a different install, and killing the recorded pid then leaves
+ * the real one serving. `/_jev/health` reports the pid of the process that answered, so it is
+ * the more reliable target; the file is the fallback for a daemon that has stopped answering.
+ */
 async function stop() {
+  const up = await health();
   const pidFile = join(stateDir(), "daemon.pid");
-  if (!existsSync(pidFile)) return false;
-  try {
-    process.kill(Number(readFileSync(pidFile, "utf8").trim()));
-    return true;
-  } catch {
-    return false;
+  const recorded = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : null;
+  let stopped = false;
+  for (const pid of new Set([up?.pid, recorded].filter(Boolean))) {
+    try {
+      process.kill(pid);
+      stopped = true;
+    } catch {}
   }
+  return stopped;
 }
 
 // --- subcommands ---------------------------------------------------------------------
@@ -128,6 +183,13 @@ async function stop() {
 /** Idempotent: starts the daemon only when nothing is answering. Used by SessionStart. */
 async function ensure({ quiet = false } = {}) {
   let up = await health();
+  // A daemon started from a slash command has no key -- only hooks are given plugin options --
+  // and would then pass every turn through for as long as it stayed up. This runs from the
+  // SessionStart hook, so when it holds a key and the running daemon does not, replace it.
+  if (up && !up.hasKey && apiKey()) {
+    await stop();
+    up = null;
+  }
   if (!up) up = await start();
   if (!up) {
     // Fail loudly here but never block the session: without the daemon, Claude Code is
@@ -171,16 +233,14 @@ export async function setup() {
   console.log(`env        ${added.length ? `wrote ${added.length} keys` : "already correct"}`);
   console.log(`statusLine ${statusNote}`);
 
-  const key = apiKey();
-  const provider = resolveProvider(key);
-  console.log(`key        ${key ? `present, provider ${provider?.name ?? "UNRECOGNISED"}` : "MISSING"}`);
-
   await ensure({ quiet: true });
   const up = await health();
   console.log(`daemon     ${up ? `running on ${BASE}` : "NOT RUNNING"}`);
+  const k = keyState(up);
+  console.log(`key        ${keyLine(k)}`);
   console.log("");
   console.log("Restart Claude Code to activate: the environment is read at startup.");
-  return up && key && provider ? 0 : 1;
+  return up && k.ok ? 0 : 1;
 }
 
 async function doctor() {
@@ -204,19 +264,26 @@ async function doctor() {
   const up = await health();
   checks.push(["daemon", Boolean(up), up ? `up on ${BASE}, pid ${up.pid}` : `nothing answering on ${BASE}`]);
 
-  const key = apiKey();
-  const provider = resolveProvider(key);
-  checks.push(["key", Boolean(key), key ? `${key.slice(0, 7)}… (${key.length} chars)` : "not set - run /plugin configure"]);
-  checks.push(["provider", Boolean(provider), provider ? provider.name : "key format matches no known provider"]);
+  const k = keyState(up);
+  checks.push(["key", Boolean(k.source), keyLine(k)]);
+  checks.push([
+    "provider",
+    Boolean(k.provider),
+    k.provider ?? (k.source ? "key format matches no known provider" : "no key to identify"),
+  ]);
 
-  if (key && provider) {
-    const probe = await provider.ask({
-      apiKey: key,
-      prompt: "ping",
-      current: "claude-sonnet-5",
-      contextTokens: 10,
-      models: [{ id: "claude-sonnet-5", tier: "sonnet", description: "Sonnet 5" }],
-    });
+  if (k.ok) {
+    // When the key is only in the daemon, the daemon makes the call: this process has
+    // nothing to authenticate with.
+    const probe = k.source === "env"
+      ? await resolveProvider(k.key).ask({
+          apiKey: k.key,
+          prompt: "ping",
+          current: "claude-sonnet-5",
+          contextTokens: 10,
+          models: [{ id: "claude-sonnet-5", tier: "sonnet", description: "Sonnet 5" }],
+        })
+      : await probeViaDaemon();
     checks.push(["provider reachable", !probe?.error, probe?.error ?? `answered in ${probe?.ms}ms`]);
   }
 
@@ -377,4 +444,4 @@ if (isMainModule(import.meta.filename)) {
   process.exit(await run());
 }
 
-export { managedEnv, STATUS_LINE_MARK };
+export { managedEnv, STATUS_LINE_MARK, keyState, keyLine };

@@ -13,7 +13,7 @@ import { isMainModule } from "./is-main.mjs";
 import http from "node:http";
 import https from "node:https";
 import { createHash } from "node:crypto";
-import { askJev } from "./providers/index.mjs";
+import { askJev, resolveProvider } from "./providers/index.mjs";
 import { decide, usedExactModel } from "./policy.mjs";
 import {
   applyTier,
@@ -328,7 +328,12 @@ export function startDaemon({ port = defaultPort(), upstream = upstreamURL(), ro
     let onUsage = null;
     // Claude Code warms the connection with `HEAD /api/hello` before its first request.
     if (req.method === "HEAD") return res.writeHead(200).end();
-    if (req.url?.startsWith("/_jev/")) return serveControl(req, res, wire);
+    if (req.url?.startsWith("/_jev/"))
+      return void serveControl(req, res, wire).catch((err) => {
+        // A control path that throws must still answer, or the caller waits for its timeout.
+        if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      });
 
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
@@ -484,7 +489,7 @@ function forward(req, res, out, { catalog, transport, target, agent }, onUsage =
 }
 
 /** `/_jev/*`: health for the SessionStart hook, status for the status line and `/jev:why`. */
-function serveControl(req, res, { upstream, catalog }) {
+async function serveControl(req, res, { upstream, catalog }) {
   const url = new URL(req.url, "http://127.0.0.1");
   const json = (code, value) => {
     res.writeHead(code, { "content-type": "application/json" });
@@ -494,12 +499,30 @@ function serveControl(req, res, { upstream, catalog }) {
     return json(200, {
       ok: true,
       upstream,
+      // The daemon is the only process the key ever reaches, so the control commands ask
+      // it rather than their own environment. The name is safe to report; the key is not.
       hasKey: Boolean(apiKey()),
+      provider: resolveProvider(apiKey())?.name ?? null,
       catalog: catalog.size,
       seedTier: seedTier(),
       availableTiers: availableTiers(),
       pid: process.pid,
     });
+  }
+  if (url.pathname === "/_jev/probe") {
+    // `/jev:doctor` cannot reach the provider itself -- the key is only ever in this
+    // process -- so it asks the daemon to make the call and report how it went.
+    const key = apiKey();
+    const provider = resolveProvider(key);
+    if (!key || !provider) return json(200, { ok: false, error: key ? "no provider for key" : "no key" });
+    const probe = await provider.ask({
+      apiKey: key,
+      prompt: "ping",
+      current: "claude-sonnet-5",
+      contextTokens: 10,
+      models: [{ id: "claude-sonnet-5", tier: "sonnet", description: "Sonnet 5" }],
+    });
+    return json(200, { ok: !probe?.error, error: probe?.error ?? null, ms: probe?.ms ?? null });
   }
   if (url.pathname === "/_jev/status") {
     return json(200, readStatus(url.searchParams.get("session")) ?? {});
