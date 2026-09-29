@@ -52,17 +52,26 @@ function keyState(up) {
     const provider = resolveProvider(key);
     return { ok: Boolean(provider), key, provider: provider?.name ?? null, source: "env" };
   }
-  if (up?.hasKey) return { ok: Boolean(up.provider), key: "", provider: up.provider, source: "daemon" };
+  if (up?.hasKey) {
+    // A daemon older than this command reports no `provider` field at all. Absent is not the
+    // same answer as "the key matched no provider": the daemon outlives the session that
+    // started it, so it is routinely older than the command asking, and reading silence as
+    // failure accuses a working install of holding a malformed key.
+    if (up.provider === undefined) return { ok: true, key: "", provider: null, source: "daemon", stale: true };
+    return { ok: Boolean(up.provider), key: "", provider: up.provider, source: "daemon" };
+  }
   return { ok: false, key: "", provider: null, source: null };
 }
 
 /** One line describing the key, phrased for wherever it was found. */
 function keyLine(k) {
   if (k.source === "env") return `${k.key.slice(0, 7)}\u2026 (${k.key.length} chars), provider ${k.provider ?? "UNRECOGNISED"}`;
-  if (k.source === "daemon")
+  if (k.source === "daemon") {
+    if (k.stale) return "held by the daemon, which predates this build - restart Claude Code to refresh it";
     return k.provider
       ? `held by the daemon, provider ${k.provider}`
       : "held by the daemon, but its format matches no known provider";
+  }
   return "not set - run /plugin configure claude-jev, then restart Claude Code";
 }
 
@@ -113,6 +122,8 @@ async function probeViaDaemon(timeoutMs = 8000) {
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   try {
     const res = await fetch(`${BASE}/_jev/probe`, { signal: abort.signal });
+    // 404 means this daemon is older than the command: the path did not exist yet.
+    if (res.status === 404) return { unsupported: true };
     if (!res.ok) return { error: `daemon answered ${res.status}` };
     return await res.json();
   } catch (err) {
@@ -271,9 +282,20 @@ async function doctor() {
   checks.push(["key", Boolean(k.source), keyLine(k)]);
   checks.push([
     "provider",
-    Boolean(k.provider),
-    k.provider ?? (k.source ? "key format matches no known provider" : "no key to identify"),
+    Boolean(k.provider) || Boolean(k.stale),
+    k.provider ??
+      (k.stale
+        ? "cannot tell - the running daemon predates this build"
+        : k.source
+          ? "key format matches no known provider"
+          : "no key to identify"),
   ]);
+  if (k.stale)
+    checks.push([
+      "daemon build",
+      false,
+      "older than this plugin - restart Claude Code, which replaces it with the current one",
+    ]);
 
   if (k.ok) {
     // When the key is only in the daemon, the daemon makes the call: this process has
@@ -287,7 +309,10 @@ async function doctor() {
           models: [{ id: "claude-sonnet-5", tier: "sonnet", description: "Sonnet 5" }],
         })
       : await probeViaDaemon();
-    checks.push(["provider reachable", !probe?.error, probe?.error ?? `answered in ${probe?.ms}ms`]);
+    // An old daemon has no probe path; that is a fact about the daemon, not the provider.
+    if (probe?.unsupported)
+      checks.push(["provider reachable", true, "not checked - the running daemon predates this build"]);
+    else checks.push(["provider reachable", !probe?.error, probe?.error ?? `answered in ${probe?.ms}ms`]);
   }
 
   let version = "unknown";

@@ -210,3 +210,29 @@ test("the fingerprint does not carry the key", () => {
   assert.doesNotMatch(fp, /secret|apikey/);
   assert.ok(fp.length <= 12, "short enough to be useless for recovery");
 });
+
+// --- a daemon older than the command asking -----------------------------------------------
+//
+// The daemon outlives the session that started it, so right after an update the running
+// daemon is routinely older than the command interrogating it. Fields it does not know about
+// come back undefined, which is not the same answer as the daemon saying "no".
+
+test("a daemon too old to report a provider is not accused of holding a bad key", async () => {
+  const k = await withoutEnvKey(() => keyState({ hasKey: true })); // no `provider` field at all
+  assert.equal(k.source, "daemon");
+  assert.ok(k.stale, "absence of the field means the daemon is old");
+  assert.ok(k.ok, "an unanswerable question is not a failed key");
+});
+
+test("a daemon that explicitly reports no provider is still a real failure", async () => {
+  const k = await withoutEnvKey(() => keyState({ hasKey: true, provider: null }));
+  assert.equal(k.stale, undefined, "null is an answer, not silence");
+  assert.equal(k.ok, false);
+});
+
+test("the stale daemon is told to restart, not the key to be re-entered", async () => {
+  const line = await withoutEnvKey(() => keyLine(keyState({ hasKey: true })));
+  assert.match(line, /restart/i);
+  assert.doesNotMatch(line, /configure|not set|no known provider/i,
+    "must not send the user to re-enter a key that is fine");
+});

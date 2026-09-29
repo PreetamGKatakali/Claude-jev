@@ -206,7 +206,7 @@ and the model cannot flip mid-task.
 ## Try it without touching your config
 
 ```bash
-npm test          # 101 tests, no network
+npm test          # 104 tests, no network
 JEV_API_KEY=sk-or-… npm run daemon
 ```
 
