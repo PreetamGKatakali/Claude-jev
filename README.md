@@ -141,6 +141,17 @@ points at the router for every session on the machine, so if the daemon is down,
 until it is back. `/jev:setup` restarts it and `/jev:off` reverts to stock Claude Code
 immediately.
 
+### Changing your key
+
+```
+/plugin configure claude-jev
+```
+
+then **restart Claude Code**. The daemon deliberately outlives the session that started it, so
+a new key does not reach the running one; the `SessionStart` hook compares a short digest of
+the configured key against the one the daemon reports and replaces the daemon when they differ.
+Nothing has to be stopped by hand, and no key is ever compared in the clear.
+
 `key held by the daemon` is the normal reading, not a fallback. Claude Code gives plugin
 options to hook processes only, so a slash command has no key in its own environment however
 correctly the key is configured; the daemon is started by the `SessionStart` hook and is the
@@ -195,7 +206,7 @@ and the model cannot flip mid-task.
 ## Try it without touching your config
 
 ```bash
-npm test          # 97 tests, no network
+npm test          # 101 tests, no network
 JEV_API_KEY=sk-or-… npm run daemon
 ```
 

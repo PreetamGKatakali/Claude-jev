@@ -182,3 +182,31 @@ test("a daemon that is down does not hide a missing key", async () => {
   assert.equal(k.source, null);
   assert.equal(k.ok, false);
 });
+
+// --- noticing a key the user has replaced -------------------------------------------------
+//
+// The daemon outlives the session that started it, so a changed key would otherwise never
+// reach it: it still reports a key, so every liveness check passes while every routing call
+// authenticates with the old one.
+
+const { keyFingerprint } = await import("../src/key.mjs");
+
+test("the same key always fingerprints the same, so a restart is not triggered on a match", () => {
+  assert.equal(keyFingerprint("apikey_abc"), keyFingerprint("apikey_abc"));
+});
+
+test("a replaced key fingerprints differently, which is what triggers the restart", () => {
+  assert.notEqual(keyFingerprint("apikey_old"), keyFingerprint("apikey_new"));
+});
+
+test("no key fingerprints to null rather than to the digest of an empty string", () => {
+  assert.equal(keyFingerprint(""), null);
+  assert.equal(keyFingerprint(), null);
+});
+
+test("the fingerprint does not carry the key", () => {
+  const key = "apikey_2441_secret_material_that_must_not_leak";
+  const fp = keyFingerprint(key);
+  assert.doesNotMatch(fp, /secret|apikey/);
+  assert.ok(fp.length <= 12, "short enough to be useless for recovery");
+});

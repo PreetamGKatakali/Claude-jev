@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveProvider } from "../src/providers/index.mjs";
+import { keyFingerprint } from "../src/key.mjs";
 import { readLatest } from "../src/status.mjs";
 import { readAll } from "../src/ledger.mjs";
 import { costOf, loadPrices, PRICES_AS_OF } from "../src/prices.mjs";
@@ -183,10 +184,12 @@ async function stop() {
 /** Idempotent: starts the daemon only when nothing is answering. Used by SessionStart. */
 async function ensure({ quiet = false } = {}) {
   let up = await health();
-  // A daemon started from a slash command has no key -- only hooks are given plugin options --
-  // and would then pass every turn through for as long as it stayed up. This runs from the
-  // SessionStart hook, so when it holds a key and the running daemon does not, replace it.
-  if (up && !up.hasKey && apiKey()) {
+  // The daemon outlives the session that started it, which is what makes routing survive a
+  // restart -- and also what would pin it to a stale key forever. This runs from the
+  // SessionStart hook, the one place the current key is known, so it is where a daemon running
+  // on the wrong key gets replaced: none at all (started from a slash command, which is given
+  // no key) or one the user has since changed.
+  if (up && apiKey() && up.keyFingerprint !== keyFingerprint(apiKey())) {
     await stop();
     up = null;
   }

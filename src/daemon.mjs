@@ -14,6 +14,7 @@ import http from "node:http";
 import https from "node:https";
 import { createHash } from "node:crypto";
 import { askJev, resolveProvider } from "./providers/index.mjs";
+import { keyFingerprint } from "./key.mjs";
 import { decide, usedExactModel } from "./policy.mjs";
 import {
   applyTier,
@@ -503,6 +504,9 @@ async function serveControl(req, res, { upstream, catalog }) {
       // it rather than their own environment. The name is safe to report; the key is not.
       hasKey: Boolean(apiKey()),
       provider: resolveProvider(apiKey())?.name ?? null,
+      // Lets the hook notice the user changed their key without either side handling it:
+      // a truncated digest is enough to compare two keys and useless for recovering one.
+      keyFingerprint: keyFingerprint(apiKey()),
       catalog: catalog.size,
       seedTier: seedTier(),
       availableTiers: availableTiers(),
